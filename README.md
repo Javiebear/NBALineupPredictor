@@ -3,7 +3,7 @@ SOFE 4620U - Machine Learning & Data Mining
 
 Group 2 Members:
 Javier Chung - 100785653
-Laksumi Somaskanthamoorthy - 100782723
+Laksumi Somaskanthamoorthy - 100782723 
 Zainab Nomani - 100784761
 
 # Introduction
@@ -13,9 +13,17 @@ The repository contains a machine learning algorithm that can predict the optima
 Libraries:
 - xgboost
 - scikit-learn
-- pandas 2.
+- pandas
 
 ```bash
 pip install xgboost scikit-learn pandas
 ```
-
+## Execution
+Clone and go to the repository 
+```bash
+git clone https://github.com/Javiebear/NBALineupPredictor
+```
+Execute Script
+```bash
+python model.py
+```
