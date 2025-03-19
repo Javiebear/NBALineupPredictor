@@ -7,6 +7,10 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import pandas as pd
 import os
+import EngFeatures
+import heapq
+from collections import defaultdict
+
 # pip install xgboost scikit-learn pandas
 
 LINEUP_ATTRIBUTES = [
@@ -115,6 +119,7 @@ def aquireData(csv):
 
         home = [row[f'home_{j}'] for j in range(5)]
         away = [row[f'away_{j}'] for j in range(5)]
+
         # Indexing players and teams in the lineups
         indexedLineupHome = [playerToIndex.get(p, playerToIndex["<UNK>"]) for p in home]
         homeLineups.append(indexedLineupHome)
@@ -145,6 +150,12 @@ def aquireData(csv):
 # ----------------------------- Training the model using the XGBoost model  ------------------------------------- #
 # This method is used to 
 def trainModel(x,y):
+
+    # # Evaluating model
+    # X_train, X_test, y_train, y_test = train_test_split(
+    #     x, y, test_size=0.2, random_state=42
+    # )
+
     model = xgb.XGBClassifier(
         n_estimators=1000,
         max_depth=50,
@@ -155,7 +166,13 @@ def trainModel(x,y):
         eval_metric='logloss'
     )
     model.fit(x, y)
-    model.save_model("./Model/nbaModel.json") # saving the model
+
+
+    # Evaluating model
+    # model.fit(X_train, y_train)
+    # y_pred = model.predict(X_test)
+    # accuracy = accuracy_score(y_test, y_pred)
+    # print(f"Test Accuracy: {accuracy * 100:.2f}%")
 
     return (model)
 
@@ -171,7 +188,7 @@ def trainModel(x,y):
 #   teamToIndex - the dictionary of mapping team names to indexes
 # @return:
 #   This method returns the amount of correct results there were
-def predictTests(rosters, tests, testResults, playerToIndex, teamToIndex, model, predData):
+def predictTests(rosters, tests, testResults, playerToIndex, teamToIndex, freqOfEachPlayer, synergyMatrix, winRateMatrix, model, predData):
     
     correctResults = 0
 
@@ -219,6 +236,9 @@ def predictTests(rosters, tests, testResults, playerToIndex, teamToIndex, model,
         # Making sure that the players that are being tested are in the correct home roster and isnt any of the current players
         viablePlayers = [p for p in set(rosters[homeTeamInput]) if p not in homeTeamLineupInput]
 
+        topPlayers = []
+        w1, w2, w3, w4 = 0.8, 0.1, 0.05, 0.05
+
         # predicing the player that would fit in this lineup
         for player in viablePlayers:
             homeLineupsPred = homeTeamLineupInput + [player] # Adding the last player to make the lineup have 5 players
@@ -232,9 +252,39 @@ def predictTests(rosters, tests, testResults, playerToIndex, teamToIndex, model,
             # Probability for class = 1
             winProb = model.predict_proba([features])[0][1]  
 
-            if winProb > bestProb:
-                bestProb = winProb
+            # Computing additional metrics
+            lineupWinRate = EngFeatures.getLineupWinRate(homeLineupsPred, winRateMatrix)
+            lineupSynergy = EngFeatures.getLineupSynergy(homeLineupsPred, synergyMatrix)
+            crossSynergy = EngFeatures.getCrossSynergy(homeLineupsPred, sortedawayLineupInput, synergyMatrix)
+            freq = freqOfEachPlayer.get(player, 0)
+
+            overallScore = w1 * winProb + w2 * lineupWinRate + w3 * lineupSynergy + w4 * crossSynergy 
+
+            # selecting the best probability top 10 players
+            if len(topPlayers) < 10:
+                heapq.heappush(topPlayers, (overallScore, player))
+            else:
+                # Adjusting the players so that only the top probailities will be stored
+                heapq.heappushpop(topPlayers, (overallScore, player))
+
+        # Sotring the players by descending order
+        topPlayers = sorted(topPlayers, key=lambda x: (-x[0], x[1]))
+
+        # Postproccessing to select the player with highest historical frequency, synergies and winrates
+        maxFreq = -1
+        bestProb = -1
+        for prob, player in topPlayers:
+            freq = freqOfEachPlayer.get(player, 0)
+
+            # selecting the player with the higher frequency (if theres a tie, higher prob wins)
+            if freq > maxFreq or (freq == maxFreq and prob > bestProb):
                 bestPlayer = player
+                maxFreq = freq
+                bestProb = prob
+
+        # Check if the selected player is correct
+        if bestPlayer == testResults[i]:
+            correctResults += 1
         
         # print(f"actualPlayer {testResults[i]} vs predicted player {bestPlayer}\n")
 
@@ -243,11 +293,34 @@ def predictTests(rosters, tests, testResults, playerToIndex, teamToIndex, model,
         predData['Home_Team'].append(homeTeamInput)
         predData['Fifth_Player'].append(bestPlayer)
 
+        
+
         if (bestPlayer == testResults[i]):
             correctResults = correctResults + 1
 
 
     return (correctResults)
+
+# getting each synergy, winrate and frequency of each player of each year
+def getPostProcData(csv):
+    df = pd.read_csv(csv)
+    filteredDF = df[LINEUP_ATTRIBUTES]
+    freqOfEachPlayer = defaultdict(int)
+
+    # Iterating through the lineup dataframe to convert each player to indexes
+    for _, row in filteredDF.iterrows():
+
+        home = [row[f'home_{j}'] for j in range(5)]
+
+        # calculating how many times the player appears
+        for player in home:
+            freqOfEachPlayer[player] += 1
+
+    synergyMatrix = EngFeatures.getSynergyMatrix(filteredDF)
+    winRateMatrix = EngFeatures.getWinRateMatrix(filteredDF)
+
+
+    return synergyMatrix, winRateMatrix, freqOfEachPlayer
 
 # ------------------------- Creating Models For Prediction -------------------- #
 # Combining all the matchup data into one dataset
@@ -270,6 +343,16 @@ combinedMatchupDF.to_csv("./NBAData/matchupsUltimate.csv", index=False)
 
 x, y, rostersMega, playerToIndexMega, teamToIndexMega = aquireData("./NBAData/matchupsUltimate.csv")
 modelMega = trainModel(x,y)
+
+synergyMatrix07, winRateMatrix07, freqOfEachPlayer07 = getPostProcData("./NBAData/matchups-2007.csv")
+synergyMatrix08, winRateMatrix08, freqOfEachPlayer08 = getPostProcData("./NBAData/matchups-2008.csv")
+synergyMatrix09, winRateMatrix09, freqOfEachPlayer09 = getPostProcData("./NBAData/matchups-2009.csv")
+synergyMatrix10, winRateMatrix10, freqOfEachPlayer10 = getPostProcData("./NBAData/matchups-2010.csv")
+synergyMatrix11, winRateMatrix11, freqOfEachPlayer11 = getPostProcData("./NBAData/matchups-2011.csv")
+synergyMatrix12, winRateMatrix12, freqOfEachPlayer12 = getPostProcData("./NBAData/matchups-2012.csv")
+synergyMatrix13, winRateMatrix13, freqOfEachPlayer13 = getPostProcData("./NBAData/matchups-2013.csv")
+synergyMatrix14, winRateMatrix14, freqOfEachPlayer14 = getPostProcData("./NBAData/matchups-2014.csv")
+synergyMatrix15, winRateMatrix15, freqOfEachPlayer15 = getPostProcData("./NBAData/matchups-2015.csv")
 
 # ----------------------------------------- Gathering Tests ------------------------------------------------- #
 
@@ -298,43 +381,48 @@ print("Making Predictions...")
 
 totalResults = 0
 
-correctResults = predictTests(rostersMega, tests[2007], testsResults[2007], playerToIndexMega, teamToIndexMega, modelMega, predData)
+# Used for testing...
+# correctResults = predictTests(rosters07, tests[2008], testsResults[2008], playerToIndex07, teamToIndex07, freqOfEachPlayer07, synergyMatrix07, winRateMatrix07,  modelMega, predData)
+# print(f"2008 TESTS - accuracy: {correctResults/(len(tests[2008]) + 1)*100:.4f}%\nThere are {correctResults}/{len(tests[2008]) + 1} correct results")
+# totalResults = totalResults + correctResults
+
+correctResults = predictTests(rostersMega, tests[2007], testsResults[2007], playerToIndexMega, teamToIndexMega, freqOfEachPlayer07, synergyMatrix07, winRateMatrix07, modelMega, predData)
 print(f"2007 TESTS - accuracy: {correctResults/(len(tests[2007]) + 1)*100:.4f}%\nThere are {correctResults}/{len(tests[2007]) + 1} correct results")
 totalResults = totalResults + correctResults
 
-correctResults = predictTests(rostersMega, tests[2008], testsResults[2008], playerToIndexMega, teamToIndexMega, modelMega, predData)
+correctResults = predictTests(rostersMega, tests[2008], testsResults[2008], playerToIndexMega, teamToIndexMega, freqOfEachPlayer08, synergyMatrix08, winRateMatrix08, modelMega, predData)
 print(f"2008 TESTS - accuracy: {correctResults/(len(tests[2008]) + 1)*100:.4f}%\nThere are {correctResults}/{len(tests[2008]) + 1} correct results")
 totalResults = totalResults + correctResults
 
-correctResults = predictTests(rostersMega, tests[2009], testsResults[2009], playerToIndexMega, teamToIndexMega, modelMega, predData)
+correctResults = predictTests(rostersMega, tests[2009], testsResults[2009], playerToIndexMega, teamToIndexMega, freqOfEachPlayer09, synergyMatrix09, winRateMatrix09, modelMega, predData)
 print(f"2009 TESTS - accuracy: {correctResults/(len(tests[2009]) + 1)*100:.4f}%\nThere are {correctResults}/{len(tests[2009]) + 1} correct results")
 totalResults = totalResults + correctResults
 
-correctResults = predictTests(rostersMega, tests[2010], testsResults[2010], playerToIndexMega, teamToIndexMega, modelMega, predData)
+correctResults = predictTests(rostersMega, tests[2010], testsResults[2010], playerToIndexMega, teamToIndexMega, freqOfEachPlayer10, synergyMatrix10, winRateMatrix10, modelMega, predData)
 print(f"2010 TESTS - accuracy: {correctResults/(len(tests[2010]) + 1)*100:.4f}%\nThere are {correctResults}/{len(tests[2010]) + 1} correct results")
 totalResults = totalResults + correctResults
 
-correctResults = predictTests(rostersMega, tests[2011], testsResults[2011], playerToIndexMega, teamToIndexMega, modelMega, predData)
+correctResults = predictTests(rostersMega, tests[2011], testsResults[2011], playerToIndexMega, teamToIndexMega, freqOfEachPlayer11, synergyMatrix11, winRateMatrix11, modelMega, predData)
 print(f"2011 TESTS - accuracy: {correctResults/(len(tests[2011]) + 1)*100:.4f}%\nThere are {correctResults}/{len(tests[2011]) + 1} correct results")
 totalResults = totalResults + correctResults
 
-correctResults = predictTests(rostersMega, tests[2012], testsResults[2012], playerToIndexMega, teamToIndexMega, modelMega, predData)
+correctResults = predictTests(rostersMega, tests[2012], testsResults[2012], playerToIndexMega, teamToIndexMega, freqOfEachPlayer12, synergyMatrix12, winRateMatrix12, modelMega, predData)
 print(f"2012 TESTS - accuracy: {correctResults/(len(tests[2012]) + 1)*100:.4f}%\nThere are {correctResults}/{len(tests[2012]) + 1} correct results")
 totalResults = totalResults + correctResults
 
-correctResults = predictTests(rostersMega, tests[2013], testsResults[2013], playerToIndexMega, teamToIndexMega, modelMega, predData)
+correctResults = predictTests(rostersMega, tests[2013], testsResults[2013], playerToIndexMega, teamToIndexMega, freqOfEachPlayer13, synergyMatrix13, winRateMatrix13, modelMega, predData)
 print(f"2013 TESTS - accuracy: {correctResults/(len(tests[2013]) + 1)*100:.4f}%\nThere are {correctResults}/{len(tests[2013]) + 1} correct results")
 totalResults = totalResults + correctResults
 
-correctResults = predictTests(rostersMega, tests[2014], testsResults[2014], playerToIndexMega, teamToIndexMega, modelMega, predData)
+correctResults = predictTests(rostersMega, tests[2014], testsResults[2014], playerToIndexMega, teamToIndexMega, freqOfEachPlayer14, synergyMatrix14, winRateMatrix14, modelMega, predData)
 print(f"2014 TESTS - accuracy: {correctResults/(len(tests[2014]) + 1)*100:.4f}%\nThere are {correctResults}/{len(tests[2014]) + 1} correct results")
 totalResults = totalResults + correctResults
 
-correctResults = predictTests(rostersMega, tests[2015], testsResults[2015], playerToIndexMega, teamToIndexMega, modelMega, predData)
+correctResults = predictTests(rostersMega, tests[2015], testsResults[2015], playerToIndexMega, teamToIndexMega, freqOfEachPlayer15, synergyMatrix15, winRateMatrix15, modelMega, predData)
 print(f"2015 TESTS - accuracy: {correctResults/(len(tests[2015]) + 1)*100:.4f}%\nThere are {correctResults}/{len(tests[2015]) + 1} correct results")
 totalResults = totalResults + correctResults
 
-correctResults = predictTests(rostersMega, tests[2016], testsResults[2016], playerToIndexMega, teamToIndexMega, modelMega, predData)
+correctResults = predictTests(rostersMega, tests[2016], testsResults[2016], playerToIndexMega, teamToIndexMega, freqOfEachPlayer15, synergyMatrix15, winRateMatrix15, modelMega, predData)
 print(f"2016 TESTS - accuracy: {correctResults/(len(tests[2016]) + 1)*100:.4f}%\nThere are {correctResults}/{len(tests[2016]) + 1} correct results")
 totalResults = totalResults + correctResults
 
