@@ -1,7 +1,8 @@
 # NBALineupPredictor
 SOFE 4620U - Machine Learning & Data Mining
 
-Group 2 Members:
+**Group 2 Members:**
+
 Javier Chung - 100785653
 
 Laksumi Somaskanthamoorthy - 100782723 
