@@ -17,9 +17,11 @@ Libraries:
 - xgboost
 - scikit-learn
 - pandas
+- numpy
+- gensim
 
 ```bash
-pip install xgboost scikit-learn pandas
+pip install xgboost scikit-learn pandas numpy gensim 
 ```
 ## Execution
 Clone and go to the repository 
