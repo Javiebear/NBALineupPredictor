@@ -3,7 +3,9 @@ SOFE 4620U - Machine Learning & Data Mining
 
 Group 2 Members:
 Javier Chung - 100785653
+
 Laksumi Somaskanthamoorthy - 100782723 
+
 Zainab Nomani - 100784761
 
 # Introduction
@@ -14,6 +16,7 @@ The objective of this project is to develop a machine learning predicate model t
  
 ## Requirements
 - Tested using python version: **python3.11**
+  
 Libraries:
 - xgboost
 - scikit-learn
