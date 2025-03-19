@@ -23,10 +23,9 @@ Libraries:
 - scikit-learn
 - pandas
 - numpy
-- gensim
 
 ```bash
-pip install xgboost scikit-learn pandas numpy gensim 
+pip install xgboost scikit-learn pandas numpy  
 ```
 ## Execution
 Clone and go to the repository 
