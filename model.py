@@ -1,8 +1,12 @@
+# Filename: model.py
+# Date: February 14, 2025
+# Authors: Javier Chung, Laksumi, Zainab
+
 import xgboost as xgb
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import pandas as pd
-
+import os
 # pip install xgboost scikit-learn pandas
 
 LINEUP_ATTRIBUTES = [
@@ -123,7 +127,7 @@ def aquireData(csv):
 
         # Normalizing the starting minute and outcome data and year
         startingMin.append(row['starting_min'] / 47) 
-        year.append((row['season'] - 2007)/ (2015 - 2007))
+        year.append((row['season'] - 2007)/ (2016 - 2007))
         classifier = row['outcome']
         if(classifier == -1):
             classifier = 0
@@ -151,6 +155,7 @@ def trainModel(x,y):
         eval_metric='logloss'
     )
     model.fit(x, y)
+    model.save_model("./Model/nbaModel.json") # saving the model
 
     return (model)
 
@@ -203,7 +208,7 @@ def predictTests(rosters, tests, testResults, playerToIndex, teamToIndex, model,
         homeTeamLineupInput = [tests[i][col] for col in ['home_0', 'home_1', 'home_2', 'home_3', 'home_4'] if tests[i][col] != "?"]
         awayTeamLineupInput = [tests[i]['away_0'], tests[i]['away_1'],tests[i]['away_2'], tests[i]['away_3'], tests[i]['away_4']]
         startingMinInput = tests[i]['starting_min']/47        
-        year = (tests[i]['season'] - 2007)/ (2015 - 2007)
+        year = (tests[i]['season'] - 2007)/ (2016 - 2007)
 
         # Sorting and turning the names into index
         homeTeamIndex = [teamToIndex[homeTeamInput]]
@@ -263,15 +268,14 @@ combinedMatchupDF = pd.concat((pd.read_csv(f) for f in matchupData), ignore_inde
 # Saving combined DataFrame into one CSV
 combinedMatchupDF.to_csv("./NBAData/matchupsUltimate.csv", index=False)
 
-# Creating one model that will be trained on all years
 x, y, rostersMega, playerToIndexMega, teamToIndexMega = aquireData("./NBAData/matchupsUltimate.csv")
 modelMega = trainModel(x,y)
 
 # ----------------------------------------- Gathering Tests ------------------------------------------------- #
 
 # getting test data and seperating it by year
-testDF = pd.read_csv("NBA_test.csv")
-testDFResults = pd.read_csv("NBA_test_labels.csv")
+testDF = pd.read_csv("./NBAData/NBA_test.csv")
+testDFResults = pd.read_csv("./NBAData/NBA_test_labels.csv")
 
 # Storing each test data and test result data in a 2d array
 tests = {year: [] for year in range(2007, 2017)} 
