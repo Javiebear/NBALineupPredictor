@@ -13,6 +13,7 @@ The repository contains a machine learning algorithm that can predict the optima
 The objective of this project is to develop a machine learning predicate model that is capable of processing data from a given year and find the optimal fifth player of the partial starting lineup of the following year. The model will be given the starting four players of the home team, all five players of the away team and then the model will give the fifth player who will help the team succeed. The model is built on selected features, as not all features are permitted to be used.
  
 ## Requirements
+- Tested using python version: **python3.11**
 Libraries:
 - xgboost
 - scikit-learn
